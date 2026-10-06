@@ -1,0 +1,92 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 旧件入库登记：核实实物后登记编号、重量、车辆
+model Intake {
+  id               String        @id @default(cuid())
+  serialNo         String        @unique // 旧件编号，全系统唯一，重复入库被拦截
+  vehiclePlate     String
+  ownerName        String
+  ownerPhone       String?
+  physicalVerified Boolean       @default(false) // 是否已核实实物；未核实不能入库/开凭证
+  initialWeightKg  Float // 入库登记重量（复称后仍保留）
+  currentWeightKg  Float // 当前重量（复称更新）
+  status           String        @default("STORED") // STORED 暂存 / SHIPPED 已发回收商 / RECEIVED 回收商已实收 / DISPUTED 待核实
+  createdAt        DateTime      @default(now())
+  voucher          Voucher?
+  shipmentItem     ShipmentItem?
+  receiptItem      ReceiptItem?
+  weighings        Weighing[]
+}
+
+// 回收凭证：分别列出新装电瓶与回收旧件；一件旧件只开一张
+model Voucher {
+  id               String   @id @default(cuid())
+  voucherNo        String   @unique
+  intakeId         String   @unique
+  intake           Intake   @relation(fields: [intakeId], references: [id])
+  newBatteryModel  String
+  newBatterySerial String
+  issuedAt         DateTime @default(now())
+}
+
+// 发给回收商的批次
+model Shipment {
+  id           String         @id @default(cuid())
+  shipmentNo   String         @unique
+  recyclerName String
+  status       String         @default("IN_TRANSIT") // IN_TRANSIT 在途 / CONFIRMED 已确认 / PENDING_VERIFICATION 待核实
+  shippedAt    DateTime       @default(now())
+  items        ShipmentItem[]
+  receipts     Receipt[]
+}
+
+// 批次明细：发出重量快照（实收不符也不改写）
+model ShipmentItem {
+  id           String   @id @default(cuid())
+  shipmentId   String
+  shipment     Shipment @relation(fields: [shipmentId], references: [id])
+  intakeId     String   @unique // 一件旧件只能进入一个批次
+  intake       Intake   @relation(fields: [intakeId], references: [id])
+  sentWeightKg Float
+}
+
+// 回收商签收回执（电子签收本地模拟）；同一回执号只记一次
+model Receipt {
+  id            String        @id @default(cuid())
+  receiptNo     String        @unique
+  shipmentId    String
+  shipment      Shipment      @relation(fields: [shipmentId], references: [id])
+  signerName    String
+  signatureData String // 模拟电子签名（哈希）
+  receivedAt    DateTime      @default(now())
+  items         ReceiptItem[]
+}
+
+// 回执明细：实收重量与核对结果；差额保留用于核实
+model ReceiptItem {
+  id               String  @id @default(cuid())
+  receiptId        String
+  receipt          Receipt @relation(fields: [receiptId], references: [id])
+  intakeId         String  @unique
+  intake           Intake  @relation(fields: [intakeId], references: [id])
+  receivedWeightKg Float? // null = 回执未含此件
+  matchStatus      String // MATCHED 相符 / MISMATCH 数量不符 / MISSING 回执未含此件
+}
+
+// 复称记录：保存原重量及新测量值
+model Weighing {
+  id               String   @id @default(cuid())
+  intakeId         String
+  intake           Intake   @relation(fields: [intakeId], references: [id])
+  originalWeightKg Float
+  newWeightKg      Float
+  reason           String?
+  createdAt        DateTime @default(now())
+}
