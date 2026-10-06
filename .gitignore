@@ -8,6 +8,10 @@ target/
 dist/
 build/
 *.log
+# SQLite 本地数据库（含测试库）
+*.db
+*.db-journal
+server/prisma/data/
 .claude/
 .cc-workbench/
 轨迹/

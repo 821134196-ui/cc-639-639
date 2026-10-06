@@ -1,0 +1,20 @@
+{
+  "name": "battery-trace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "汽修店旧电瓶回收凭证与去向追踪系统",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "test": "npm run test:e2e -w server",
+    "build": "npm run build -w server && npm run build -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

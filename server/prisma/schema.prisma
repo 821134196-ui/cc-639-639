@@ -1,0 +1,117 @@
+// 旧电瓶回收凭证与去向追踪系统 —— 逐件记录
+// SQLite 不支持原生 enum，状态字段用 String + 代码内常量约束
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// 旧电瓶（按编号逐件管理）
+model OldBattery {
+  id                 Int      @id @default(autoincrement())
+  /// 旧件编号，唯一；同一编号再次入库必须拦截
+  serialNumber       String   @unique
+  vehiclePlate       String
+  vehicleModel       String?
+  customerName       String?
+  /// 当前重量（kg），复称后更新；原值留在 WeightRecord
+  weightKg           Float
+  /// 实物核实时间：没有核实实物不得登记 / 开凭证
+  physicalVerifiedAt DateTime
+  intakeOperator     String
+  intakeNote         String?
+  /// STAGED（在库暂存） | DISPATCHED（已发给回收商） | ACKNOWLEDGED（回收商实收）
+  status             String   @default("STAGED")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  weightRecords WeightRecord[]
+  receipt       RecyclingReceipt?
+  dispatchItem  DispatchItem?
+}
+
+/// 复称记录：每次复称同时保留原重量与新测量值
+model WeightRecord {
+  id              Int      @id @default(autoincrement())
+  batteryId       Int
+  battery         OldBattery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  previousWeightKg Float
+  newWeightKg      Float
+  operator         String
+  reason           String?
+  createdAt        DateTime @default(now())
+
+  @@index([batteryId])
+}
+
+/// 旧件回收凭证：分别列出新装电瓶与回收旧件，一件旧件只能开一张
+model RecyclingReceipt {
+  id               Int      @id @default(autoincrement())
+  receiptNo        String   @unique
+  batteryId        Int      @unique
+  battery          OldBattery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  customerName     String
+  vehiclePlate     String
+  // —— 新装电瓶 ——
+  newBatteryBrand  String
+  newBatteryModel  String
+  newBatterySerial String
+  installedAt      DateTime
+  // —— 回收旧件（快照，防止后续复称改变凭证内容）——
+  oldBatterySerial String
+  oldWeightKg      Float
+  operator         String
+  issuedAt         DateTime @default(now())
+}
+
+/// 发给回收商的批次
+model DispatchBatch {
+  id              Int      @id @default(autoincrement())
+  batchNo         String   @unique
+  recyclerName    String
+  operator        String
+  /// SHIPPED（已发出） | ACKNOWLEDGED（实收一致） | PENDING_RECONCILIATION（数量不符，待核实）
+  status          String   @default("SHIPPED")
+  shippedCount    Int
+  receivedCount   Int?
+  /// 发出数 - 实收数，保留差额（不改成一致）
+  differenceCount Int?
+  note            String?
+  dispatchedAt    DateTime @default(now())
+  acknowledgedAt  DateTime?
+
+  items          DispatchItem[]
+  acknowledgment DispatchAcknowledgment?
+}
+
+/// 批次明细：一件旧件只能在一个批次中出现
+model DispatchItem {
+  id        Int @id @default(autoincrement())
+  batchId   Int
+  batch     DispatchBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batteryId Int @unique
+  battery   OldBattery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  /// 回收商签收回执中按编号确认收到
+  received  Boolean @default(false)
+
+  @@index([batchId])
+}
+
+/// 回收商电子签收回执（本地模拟）；一个批次只能有一条，重复签收不得再记
+model DispatchAcknowledgment {
+  id             Int      @id @default(autoincrement())
+  dispatchId     Int      @unique
+  dispatch       DispatchBatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  receivedCount  Int
+  /// 按编号确认收到的旧件 JSON 数组，可空（仅报数量）
+  receivedSerials String
+  signedBy       String
+  /// 本地模拟签名（文本/手绘数据）
+  signatureData  String
+  note           String?
+  signedAt       DateTime @default(now())
+}
